@@ -374,12 +374,15 @@ class Matcher(object):
             if t[0].distance/t[1].distance < thres_dist]
 
             # Sort them in the order of their distance.
-            near_matches = sorted(near_matches, key = lambda x:np.minimum(x[1].distance,x[0].distance))
+            near_matches = sorted(near_matches,
+                                  key = lambda x:np.minimum(x[1].distance,
+                                                            x[0].distance))
             sel_matches = near_matches[:50]
 
         else: # any other detector
             # ratio test as per Lowe's paper
-            sel_matches = [m for m in matches if m[0].distance < (self.ratio+0.1)*m[1].distance]
+            sel_matches = [m for m in matches
+                           if m[0].distance < (self.ratio+0.1)*m[1].distance]
 
         return sel_matches
 
@@ -426,24 +429,17 @@ class Matcher(object):
         sel_matches = []
         # For every match in the forward direction, we remove those that aren't
         # found in the other direction
-        for match1 in matches1:
-            for match2 in matches2:
-                # If matches are symmetrical:
-                    if (match1[0].queryIdx) == (match2[0].trainIdx) and \
-                         (match2[0].queryIdx) == (match1[0].trainIdx):
-                        # We keep only symmetric matches and store the keypoints
-                        # of this matches
-                        #sel_matches.append(match1)
-                        #self.good_kp2.append(self.kp2[match1[0].trainIdx])
-                        self.good_kp1.append(self.kp1[match1[0].queryIdx])
-                        self.good_desc1.append(self.desc1[match1[0].queryIdx])
-                        self.good_desc2.append(self.desc2[match1[0].trainIdx])
-                        break
-
-        (sel_matches, good_kp2) = [(m1, self.kp2[m1[0].trainIdx])
-                       for m2 in matches2 for m1 in matches1
-                       if (m1[0].queryIdx) == (m2[0].trainIdx) and \
-                       (m2[0].queryIdx) == (m1[0].trainIdx)]
+        (sel_matches,
+        self.good_kp2,
+        self.good_kp1,
+        self.good_desc1,
+        self.good_desc2) = zip(*[(m1,self.kp2[m1[0].trainIdx],
+                                    self.kp1[m1[0].queryIdx],
+                                    self.desc1[m1[0].queryIdx],
+                                    self.desc2[m1[0].trainIdx])
+                                for m2 in matches2 for m1 in matches1
+                                if (m1[0].queryIdx) == (m2[0].trainIdx) and \
+                                (m2[0].queryIdx) == (m1[0].trainIdx)])
 
         return sel_matches
 
@@ -547,6 +543,8 @@ class Matcher(object):
                 cv2.arrowedLine(img, ((point_query[0]), (point_query[1])),
                                 ((point_train[0]), (point_train[1])),
                                 color_dict[color],2)
+
+
         elif kp1 is not None and kp2 is not None:
             if np.shape(kp1) != np.shape(kp2):
                 return img

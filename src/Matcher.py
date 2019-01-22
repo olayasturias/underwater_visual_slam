@@ -3,7 +3,7 @@ import cv2
 import pdb
 
 """
-.. codeauthor::
+.. codeauthor:: Olaya
 : file Matcher.py
 
 """
@@ -360,13 +360,9 @@ class Matcher(object):
 
         if self.feature == 'orb':
 
-            for i in range(0, len(matches) - 1):
-                # We keep only those match objects with two matches:
-                if (len(matches[i])) == 2:
-                    # If there are two matches:
-                    for j in range(0, 2):
-                        dist.append(matches[i][j].distance)
-                    temp_matches.append(matches[i])
+            # We keep only those match objects with two matches:
+            temp_matches = [m for m in matches if (len(m)) == 2]
+            dist = [match.distance for match in m for m in temp_matches]
 
             # Now, calculate the threshold:
             if dist:
@@ -374,22 +370,16 @@ class Matcher(object):
             else:
                 return None
             # Keep only reasonable matches based on the threshold distance:
-            for i in range(0, len(temp_matches)):
-                if (temp_matches[i][0].distance / temp_matches[i][1].distance) < thres_dist:
-                    near_matches.append(temp_matches[i])
+            near_matches = [t for t in temp_matches
+            if t[0].distance/t[1].distance < thres_dist]
 
             # Sort them in the order of their distance.
             near_matches = sorted(near_matches, key = lambda x:np.minimum(x[1].distance,x[0].distance))
             sel_matches = near_matches[:50]
 
-        else:
+        else: # any other detector
             # ratio test as per Lowe's paper
-            for i,(m,n) in enumerate(matches):
-                if m.distance < (self.ratio+0.1)*n.distance: #determined experimentally
-                    sel_matches.append(matches[i])
-
-
-
+            sel_matches = [m for m in matches if m[0].distance < (self.ratio+0.1)*m[1].distance]
 
         return sel_matches
 
@@ -443,12 +433,17 @@ class Matcher(object):
                          (match2[0].queryIdx) == (match1[0].trainIdx):
                         # We keep only symmetric matches and store the keypoints
                         # of this matches
-                        sel_matches.append(match1)
-                        self.good_kp2.append(self.kp2[match1[0].trainIdx])
+                        #sel_matches.append(match1)
+                        #self.good_kp2.append(self.kp2[match1[0].trainIdx])
                         self.good_kp1.append(self.kp1[match1[0].queryIdx])
                         self.good_desc1.append(self.desc1[match1[0].queryIdx])
                         self.good_desc2.append(self.desc2[match1[0].trainIdx])
                         break
+
+        (sel_matches, good_kp2) = [(m1, self.kp2[m1[0].trainIdx])
+                       for m2 in matches2 for m1 in matches1
+                       if (m1[0].queryIdx) == (m2[0].trainIdx) and \
+                       (m2[0].queryIdx) == (m1[0].trainIdx)]
 
         return sel_matches
 

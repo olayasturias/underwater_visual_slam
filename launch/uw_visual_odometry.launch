@@ -1,0 +1,9 @@
+<?xml version="1.0"?>
+
+<launch>
+
+  <node respawn="false" pkg="underwater_visual_slam" type="UWRobot_VO.py" name="rov_vo" output ="screen">
+    <param name="img_topic" value="/BlueRov2/image_corrected" />
+  </node>
+
+</launch>

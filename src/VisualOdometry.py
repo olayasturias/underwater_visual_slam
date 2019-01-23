@@ -319,7 +319,6 @@ class VisualOdometry(object):
                                                            kpts1,
                                                            algorithms[method],
                                                            tol)
-                print self.F
                 return self.F
             except Exception, e:
                 print "Exception"
@@ -645,8 +644,6 @@ class VisualOdometry(object):
         kpts1 = (np.reshape(new_points1, (len(kpts1), 2))).T
         kpts2 = (np.reshape(new_points2, (len(kpts2), 2))).T
 
-        print np.shape(kpts1)
-
         points3D = cv2.triangulatePoints(self.cam1.P, self.cam2.P, kpts2, kpts1)
 
         self.structure = points3D / points3D[3]  # Normalize points [x, y, z, 1]
@@ -816,9 +813,9 @@ class VisualOdometry(object):
         if np.shape(kpts1)[1] != 2:
             raise ValueError("The dimensions of the input image points must \
                               be (n, 2), where n is the number of points")
-        print ("Shape needed for recoverpose: {}".format(np.shape(kpts1)))
-        print ("Type needed for recoverpose: {}".format(type(kpts1)))
-        print ("Type: {}".format(type(kpts1[0][0])))
+        #print ("Shape needed for recoverpose: {}".format(np.shape(kpts1)))
+        #print ("Type needed for recoverpose: {}".format(type(kpts1)))
+        #print ("Type: {}".format(type(kpts1[0][0])))
         kpts1 = (np.reshape(kpts1, (len(kpts1), 2))).T
         kpts2 = (np.reshape(kpts2, (len(kpts2), 2))).T
         if F is None:

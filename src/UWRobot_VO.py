@@ -5,6 +5,9 @@ import numpy as np
 import cv2
 from cv_bridge import CvBridge, CvBridgeError
 from VisualOdometry import VisualOdometry
+import gc
+import pandas as pd
+import time
 from sensor_msgs.msg import Image
 
 """
@@ -18,6 +21,10 @@ class UWVisualOdometry(object):
         # Old and new imgs
         self.old_frame = np.array([])
         self.new_frame = np.array([])
+
+        log = pd.DataFrame([['','','','']],
+                           columns = ['feature','nmatches','ngoodmatches','ex_time'])
+        log.to_csv('~/catkin_ws/volog.csv')
 
         # Create Visual Odometry instance
         self.vo = VisualOdometry(params)
@@ -39,22 +46,37 @@ class UWVisualOdometry(object):
             # If first iteration, copy image twice
             if not self.old_frame.size:
                 self.old_frame = self.new_frame.copy()
-
+            start = time.time()
             # Do VO stuff
             self.vo.init_reconstruction(optimize = False,
                                         image1 = self.old_frame,
                                         image2 = self.new_frame)
 
-            imgmatch = self.new_frame.copy()
-            self.vo.matcher.draw_matches(img = imgmatch,
-                                         matches = self.vo.matcher.good_matches)
-            rospy.logdebug("# good matches: {}".format(len(self.vo.matcher.good_matches)))
-            cv2.imshow('matches', imgmatch)
-            cv2.waitKey(3)
+            # Log time  taken
+            end = time.time()
+            ttaken = end-start
+
+            saved = pd.read_csv('~/catkin_ws/volog.csv',index_col=0,header=0)
+
+            new = pd.DataFrame([['orb',len(self.vo.matcher.matches1),
+                                 len(self.vo.matcher.good_matches),ttaken]],
+                               columns = ['feature','nmatches','ngoodmatches','ex_time'])
+
+            log = pd.concat([saved,new])
+            print log
+            log.to_csv('~/catkin_ws/volog.csv')
+            # Print things
+            # imgmatch = self.new_frame.copy()
+            # self.vo.matcher.draw_matches(img = imgmatch,
+            #                              matches = self.vo.matcher.good_matches)
+            # rospy.logdebug("# good matches: {}".format(len(self.vo.matcher.good_matches)))
+            # cv2.imshow('matches', imgmatch)
+            # cv2.waitKey(3)
 
 
             # Now the new frame becomes the older one
             self.old_frame = self.new_frame.copy()
+            gc.collect()
         except CvBridgeError as e:
             print(e)
 
@@ -70,7 +92,7 @@ def main(args):
     # new_frame    = rospy.get_param("~new_frame")
     input_topic  = rospy.get_param("~img_topic")
 
-    parameters = {"detector" : 'orb',"matcher" : 'bf'}
+    parameters = {"detector" : 'sift',"matcher" : 'bf'}
 
     # init only defines matcher object
     orb_vo = UWVisualOdometry(parameters,input_topic)

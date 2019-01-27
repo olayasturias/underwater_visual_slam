@@ -8,6 +8,7 @@ from VisualOdometry import VisualOdometry
 import gc
 import pandas as pd
 import time
+import datetime
 from sensor_msgs.msg import Image
 
 """
@@ -22,9 +23,13 @@ class UWVisualOdometry(object):
         self.old_frame = np.array([])
         self.new_frame = np.array([])
 
+        #form str for csv file name
+        self.strfile = '~/catkin_ws/' + params['detector'] + params['matcher'] +str(datetime.datetime.now()) + '.csv'
+
         log = pd.DataFrame([['','','','']],
-                           columns = ['feature','nmatches','ngoodmatches','ex_time'])
-        log.to_csv('~/catkin_ws/volog.csv')
+                           columns = ['nfeatures','nmatches','ngoodmatches','ex_time'])
+        log.to_csv(self.strfile)
+        rospy.loginfo('saving log file in %s',self.strfile)
 
         # Create Visual Odometry instance
         self.vo = VisualOdometry(params)
@@ -46,25 +51,49 @@ class UWVisualOdometry(object):
             # If first iteration, copy image twice
             if not self.old_frame.size:
                 self.old_frame = self.new_frame.copy()
-            start = time.time()
-            # Do VO stuff
-            self.vo.init_reconstruction(optimize = False,
-                                        image1 = self.old_frame,
-                                        image2 = self.new_frame)
 
-            # Log time  taken
-            end = time.time()
-            ttaken = end-start
+            # Prepare csv for log file
+            saved = pd.read_csv(self.strfile,index_col=0,header=0)
 
-            saved = pd.read_csv('~/catkin_ws/volog.csv',index_col=0,header=0)
+            # Do VO stuff.. If you can!!
+            try:
+                start = time.time()
+                self.vo.init_reconstruction(optimize = False,
+                                            image1 = self.old_frame,
+                                            image2 = self.new_frame)
+                # Log time  taken
+                end = time.time()
+                ttaken = end-start
 
-            new = pd.DataFrame([['orb',len(self.vo.matcher.matches1),
-                                 len(self.vo.matcher.good_matches),ttaken]],
-                               columns = ['feature','nmatches','ngoodmatches','ex_time'])
+
+
+                new = pd.DataFrame([[len(self.vo.matcher.kp1),len(self.vo.matcher.matches1),
+                                     len(self.vo.matcher.good_matches),ttaken]],
+                                   columns = ['nfeatures','nmatches','ngoodmatches','ex_time'])
+            except:
+                rospy.logwarn('Not enough matches in this pair of frames')
+                end = time.time()
+                ttaken = end-start
+                if not self.vo.matcher.kp1:
+                    nkp1 = 0
+                else:
+                    nkp1 = len(self.vo.matcher.kp1)
+                if not self.vo.matcher.matches1:
+                    nmatches = 0
+                else:
+                    nmatches = len(self.vo.matcher.matches1)
+                if not self.vo.matcher.good_matches:
+                    ngood = 0
+                else:
+                    ngood = len(self.vo.matcher.good_matches)
+                new = pd.DataFrame([[ nkp1, nmatches,
+                                     ngood, ttaken]],
+                                   columns = ['nfeatures','nmatches','ngoodmatches','ex_time'])
 
             log = pd.concat([saved,new])
             print log
-            log.to_csv('~/catkin_ws/volog.csv')
+            log.to_csv(self.strfile)
+
             # Print things
             # imgmatch = self.new_frame.copy()
             # self.vo.matcher.draw_matches(img = imgmatch,
@@ -92,7 +121,7 @@ def main(args):
     # new_frame    = rospy.get_param("~new_frame")
     input_topic  = rospy.get_param("~img_topic")
 
-    parameters = {"detector" : 'sift',"matcher" : 'bf'}
+    parameters = {"detector" : 'orb',"matcher" : 'bf'}
 
     # init only defines matcher object
     orb_vo = UWVisualOdometry(parameters,input_topic)

@@ -1,12 +1,5 @@
 import numpy as np
 
-"""
-.. codeauthor:: Cesar Gonzalez Gonzalez
-:file Camera.py
-
-"""
-
-
 class Camera(object):
     """ The Camera class represents the real camera. It has its representative
     attributes and methods. Also, it stores all the camera poses over the time.
@@ -26,11 +19,11 @@ class Camera(object):
             where :math:`f` is the focal distance and :math:`p_x` , :math:`p_y`
             are the camera center coordinates.
 
-            For the Kitti dataset:
+            For an already calibrated camera:
 
-                * :math:`f \\ = \\ 7.18856e+02`
-                * :math:`p_x \\ = \\ 6.071928e+02`
-                * :math:`p_y \\ = \\ 1.852157e+02`
+                * :math:`f \\ = \\ 1`
+                * :math:`p_x \\ = \\ 0`
+                * :math:`p_y \\ = \\ 0`
 
             **Type**: Numpy 3x3 ndarray
 
@@ -95,8 +88,8 @@ class Camera(object):
     """
     def __init__(self, K=None):
         if K is None:
-            self.K = np.array([[7.18856e+02, 0.0, 6.071928e+02],
-                               [0.0, 7.18856e+02, 1.852157e+02],
+            self.K = np.array([[1.0, 0.0, 0.0],
+                               [0.0, 1.0, 0.0],
                                [0.0, 0.0, 1.0]])
         else:
             self.set_K(K)
@@ -256,7 +249,7 @@ class Camera(object):
     def get_focal(self):
         """ Returns the focal lenght of the camera
 
-        For the Kitti dataset the images have the same :math:`f_x` and
+        For the same camera we have the same :math:`f_x` and
         :math:`f_y`, so we simply return the first element of the calibration
         matrix :math:`K`.
 

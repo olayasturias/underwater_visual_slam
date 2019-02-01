@@ -82,14 +82,6 @@ class VisualOdometry(object):
            stored in the third position (2) and the *current frame* in the
            fourth position (4), and so on.
 
-        .. data:: kitti
-
-           Instance of the Dataset class.
-
-           .. seealso::
-
-               :py:mod:`Dataset`
-
         .. data:: matcher
 
            Instance of the matcher class
@@ -105,6 +97,14 @@ class VisualOdometry(object):
            .. seealso::
 
                :py:class:`Map.Map`
+
+        .. data:: delta_t
+
+            Incremental traslation in camera coordinates
+
+        .. data:: delta_R
+
+            Incremental rotation
 
     **Constructor**:
 
@@ -144,6 +144,8 @@ class VisualOdometry(object):
         self.E = None  # Essential matrix
         self.index = 0
         self.scene = Map()
+        self.delta_t = 0.0
+        self.delta_R = np.identity(3)
 
     def init_reconstruction(self, optimize=True, image1 = None, image2 = None):
         """ Performs the first steps of the reconstruction.
@@ -191,10 +193,20 @@ class VisualOdometry(object):
         self.structure = self.triangulate(self.kp1, self.kp2, euclidean=True)
         # 7
         self.structure, mask = self.filter_z(self.structure)
+
         self.kp1 = self.kp1[mask]
         self.kp2 = self.kp2[mask]
         desc1 = np.asarray(self.matcher.good_desc1)[mask]
         desc2 = np.asarray(self.matcher.good_desc2)[mask]
+
+        KRt = []
+        KRt = np.append(np.hstack(self.cam.K),
+                        (np.hstack(cv2.Rodrigues(self.cam.R)[0]), np.hstack(self.cam.t)))
+
+        sol, F = self.optimize_Fv2(KRt, self.structure, self.kp2)
+        print self.F
+        print F
+
         # 8
         cam1 = Camera()
         cam1.set_index(self.index)
@@ -219,6 +231,10 @@ class VisualOdometry(object):
         self.scene.add_camera(self.cam)
         self.cam.is_keyframe()
         self.index += 1
+
+        # Increment Visual Odometry measurements
+        self.delta_R = np.matmul(self.delta_R, self.cam.R)
+        self.delta_t += self.cam.t
 
     def track_local_map(self):
         """ Tracks the local map.
@@ -646,15 +662,17 @@ class VisualOdometry(object):
 
         points3D = cv2.triangulatePoints(self.cam1.P, self.cam2.P, kpts2, kpts1)
 
-        self.structure = points3D / points3D[3]  # Normalize points [x, y, z, 1]
+        #self.structure = points3D / points3D[3]  # Normalize points [x, y, z, 1]
+        self.structure = []
+        self.structure = cv2.convertPointsFromHomogeneous(np.float32(points3D.T))
 
-        array = np.zeros((4, len(self.structure[0])))
-
-        for i in range(len(self.structure[0])):
-
-            array[:, i] = self.structure[:, i]
-
-        self.structure = array
+        # array = np.zeros((4, len(self.structure[0])))
+        #
+        # for i in range(len(self.structure[0])):
+        #
+        #     array[:, i] = self.structure[:, i]
+        #
+        # self.structure = array
 
         # The individual points are selected like these:
 
@@ -699,6 +717,8 @@ class VisualOdometry(object):
         points3d = self.triangulate_list(x1, x2, P2, P1)
 
         self.structure = points3d  # 3 x n matrix
+
+        cv2.convertPointsFromHomogeneous(np.float32(points3D.T)
 
         return points3d
 
@@ -832,7 +852,9 @@ class VisualOdometry(object):
             P1 = self.create_P1()
         points3D = cv2.triangulatePoints(P1, P2, kpts1, kpts2)
         points3D = points3D / points3D[3]
-        return points3D.T
+        euclideanPoints = []
+        euclideanPoints = cv2.convertPointsFromHomogeneous(np.float32(points3D.T))
+        return euclideanPoints
 
     def filter_z(self, points):
         """ Filter out those 3D points whose Z coordinate is negative and is
@@ -850,8 +872,7 @@ class VisualOdometry(object):
                 2. Numpy 1xn ndarray
 
         """
-        if np.shape(points)[1] != 4:
-            raise ValueError('Shape of input array must be (n, 3)')
+        points = np.reshape(points,(points.shape[0],3))
         mask_pos = points[:, 2] >= 0
         thresh = 3.5
         Z = points[:, 2]
@@ -863,6 +884,24 @@ class VisualOdometry(object):
         modified_z_score = 0.6745 * diff / med_abs_deviation
         mask = modified_z_score < thresh
         return points[mask & mask_pos], mask & mask_pos
+
+    def reprojection_error(self, KRt, points3d, kps):
+        # Reprojection of the 3D points to 2D points on the image.
+        # A large reprojection distance may indicate an error in triangulation,
+        # so we may not want to include this point in the final result.
+        # High average reprojection rates may point to a problem with
+        # the P matrices, and therefore a possible problem with
+        # the calculation of the essential matrix or the matched feature points.
+        K = np.reshape(KRt[0:9],(3,3))
+        Rvector = KRt[9:12]
+        t = KRt[12:15]
+        # reproject points
+        imgpoints, jacobian = cv2.projectPoints(points3d, Rvector, t, K, distCoeffs = None)
+        # check individual reprojection error
+        diff =  imgpoints - np.reshape(imgpoints,kps.shape)
+        #err = np.linalg.norm(diff, axis = 0) # vector of errors
+        return diff.ravel()
+
 
     def convert_from_homogeneous(self, kpts):
         # Convert homogeneous points to euclidean points
@@ -925,6 +964,55 @@ class VisualOdometry(object):
             a[i, :] = kpts[i, :2]
 
         return a
+
+    def optimal_solution(self, F, matches):
+
+        for match in matches:
+
+            (x1,y1) = self.kp1[match.queryIdx].pt
+            (x2,y2) = self.kp2[match.trainIdx].pt
+            # We create the traslation matrix that put the keypoints in
+            # the origin
+            T1 = np.matrix('1 0 -x1; 0 1 -y1; 0 0 1')
+            T2 = np.matrix('1 0 -x2; 0 1 -y2; 0 0 1')
+            # Translate F
+            # note that if x'^T F x = 0,
+            # and if x_t = Tx
+            # Then
+            # T^(-1T) F T^(-1) = 0
+            Ft = np.linalg.inv(T1).T*F*np.linalg.inv(T2)
+            # Calculate the epipolar points
+            # F*e = 0
+            # This problem has  the form Ax = 0: its an homogeneous equation
+            u,s,vt = np.linalg.svd(Ft,full_matrices=True)
+            e1 = vt[:,2]
+            e1 = cv2.convertPointsFromHomogeneous(e1.T))
+            # e'^T*F = 0
+            # To give i t the form Ax=0, we transpose to change the form
+            # F^Te' = 0
+            u,s,vt = np.linalg.svd(Ft.T,full_matrices=True)
+            e2 = vt[:,2]
+            e1 = cv2.convertPointsFromHomogeneous(e2.T))
+            # Form the rotation matrices
+            R1 = np.matrix('e1[0] e1[1] 0; -e1[1] e1[0] 0; 0 0 1')
+            R2 = np.matrix('e2[0] e2[1] 0; -e2[1] e2[0] 0; 0 0 1')
+
+            # Replace R by R'FR^T
+            Ftr = R2*F*R1.T
+
+            # Form the polynomial
+            f1 = e1[2]
+            f2 = e2[2]
+            a = Ftr[2][2]
+            b = Ftr[2][3]
+            c = Ftr[3][2]
+            d = Ftr[3][3]
+            g = x*((a*x+b)^2 + f2^2*(c*x + d)^2 - (a*d-b*c)*(1+f1^2*x^2)^2*(a*x+b)*(c*x+d))
+
+
+
+
+
 
     def func(self, params, x1, x2):
         """ Computes the residuals for the Fundamental matrix two view
@@ -1101,6 +1189,23 @@ class VisualOdometry(object):
         M = P[:, :3]
         t = P[:, 3]
         F = np.dot(self.skew(t), M)
+        return solution, F
+
+    def optimize_Fv2(self, KRt, X, x, structure=None,
+                   method='lm', robust_cost_f='linear'):
+
+
+        solution = optimize.least_squares(self.reprojection_error,
+                                          KRt, method=method,
+                                          args=(X, x), loss=robust_cost_f)
+        K = np.reshape(solution.x[0:9],(3,3))
+        Rvector = solution.x[9:12]
+        t = solution.x[12:15]
+
+        # P = solution.x[:12].reshape((3, 4))
+        # M = P[:, :3]
+        # t = P[:, 3]
+        F = np.dot(self.skew(t), cv2.Rodrigues(Rvector)[0])
         return solution, F
 
     def E_from_F(self, F=None, K=None):

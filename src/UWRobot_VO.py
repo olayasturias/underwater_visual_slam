@@ -56,51 +56,48 @@ class UWVisualOdometry(object):
             saved = pd.read_csv(self.strfile,index_col=0,header=0)
 
             # Do VO stuff.. If you can!!
-            try:
-                start = time.time()
-                self.vo.init_reconstruction(optimize = False,
+            # try:
+            start = time.time()
+            self.vo.init_reconstruction(optimize = True,
                                             image1 = self.old_frame,
                                             image2 = self.new_frame)
-                # Log time  taken
-                end = time.time()
-                ttaken = end-start
+            # Log time  taken
+            end = time.time()
+            ttaken = end-start
 
-
-
-                new = pd.DataFrame([[len(self.vo.matcher.kp1),len(self.vo.matcher.matches1),
+            new = pd.DataFrame([[len(self.vo.matcher.kp1),len(self.vo.matcher.matches1),
                                      len(self.vo.matcher.good_matches),ttaken]],
                                    columns = ['nfeatures','nmatches','ngoodmatches','ex_time'])
-            except:
-                rospy.logwarn('Not enough matches in this pair of frames')
-                end = time.time()
-                ttaken = end-start
-                if not self.vo.matcher.kp1:
-                    nkp1 = 0
-                else:
-                    nkp1 = len(self.vo.matcher.kp1)
-                if not self.vo.matcher.matches1:
-                    nmatches = 0
-                else:
-                    nmatches = len(self.vo.matcher.matches1)
-                if not self.vo.matcher.good_matches:
-                    ngood = 0
-                else:
-                    ngood = len(self.vo.matcher.good_matches)
-                new = pd.DataFrame([[ nkp1, nmatches,
-                                     ngood, ttaken]],
-                                   columns = ['nfeatures','nmatches','ngoodmatches','ex_time'])
+            # except:
+            #     rospy.logwarn('Not enough matches in this pair of frames')
+            #     end = time.time()
+            #     ttaken = end-start
+            #     if not self.vo.matcher.kp1:
+            #         nkp1 = 0
+            #     else:
+            #         nkp1 = len(self.vo.matcher.kp1)
+            #     if not self.vo.matcher.matches1:
+            #         nmatches = 0
+            #     else:
+            #         nmatches = len(self.vo.matcher.matches1)
+            #     if not self.vo.matcher.good_matches:
+            #         ngood = 0
+            #     else:
+            #         ngood = len(self.vo.matcher.good_matches)
+            #     new = pd.DataFrame([[ nkp1, nmatches,
+            #                          ngood, ttaken]],
+            #                        columns = ['nfeatures','nmatches','ngoodmatches','ex_time'])
 
             log = pd.concat([saved,new])
-            print log
             log.to_csv(self.strfile)
 
             # Print things
-            # imgmatch = self.new_frame.copy()
-            # self.vo.matcher.draw_matches(img = imgmatch,
-            #                              matches = self.vo.matcher.good_matches)
-            # rospy.logdebug("# good matches: {}".format(len(self.vo.matcher.good_matches)))
-            # cv2.imshow('matches', imgmatch)
-            # cv2.waitKey(3)
+            imgmatch = self.new_frame.copy()
+            self.vo.matcher.draw_matches(img = imgmatch,
+                                         matches = self.vo.matcher.good_matches)
+            rospy.logdebug("# good matches: {}".format(len(self.vo.matcher.good_matches)))
+            cv2.imshow('matches', imgmatch)
+            cv2.waitKey(3)
 
 
             # Now the new frame becomes the older one

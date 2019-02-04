@@ -179,12 +179,29 @@ class VisualOdometry(object):
         # 3
         self.FindFundamentalRansac(self.kp1,self.kp2,'RANSAC')
 
+
+        if not optimize:
+            # 4
+            self.structure = self.triangulate(self.kp1, self.kp2, euclidean = True)
+            reproj_mask = self.mask_reprojection(self.cam.K, self.cam.R, self.cam.t,
+                                                 self.structure,self.kp2)
+            if any(reproj_mask):
+                self.kp1 = self.kp1[reproj_mask]
+                self.kp2 = self.kp2[reproj_mask]
+                self.matcher.good_desc1 = np.asarray(self.matcher.good_desc1)[reproj_mask]
+                self.matcher.good_desc2 = np.asarray(self.matcher.good_desc2)[reproj_mask]
+                self.FindFundamentalRansac(self.kp1,self.kp2,'RANSAC')
+            else:
+                optimize = True
+
         if optimize:
             # 4
             self.structure = self.triangulate(self.kp1, self.kp2)
             # 5
-            sol, F = self.optimize_F(self.kp1, self.kp2, self.F, self.structure)
-            self.F = F
+            if (12+len(self.structure))<(len(self.kp1+len(self.kp2))):
+                sol, F = self.optimize_F(self.kp1, self.kp2, self.F, self.structure)
+                self.F = F
+
         # 6
         self.structure = self.triangulate(self.kp1, self.kp2, euclidean=True)
         # 7
@@ -194,6 +211,7 @@ class VisualOdometry(object):
         self.kp2 = self.kp2[mask]
         desc1 = np.asarray(self.matcher.good_desc1)[mask]
         desc2 = np.asarray(self.matcher.good_desc2)[mask]
+
 
         # 8
         cam1 = Camera()
@@ -1178,7 +1196,9 @@ class VisualOdometry(object):
         imgpoints, jacobian = cv2.projectPoints(points3D, Rvector, t, K, distCoeffs = None)
         # check individual reprojection error
         diff =  x - np.reshape(imgpoints,x.shape)
-        return diff
+
+        mask = [np.linalg.norm(res,axis = 0) < 0.1 for res in diff]
+        return mask
 
     def E_from_F(self, F=None, K=None):
         """ This method computes the Essential matrix from the Fundamental

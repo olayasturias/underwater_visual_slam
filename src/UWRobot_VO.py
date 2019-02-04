@@ -118,7 +118,7 @@ def main(args):
     # new_frame    = rospy.get_param("~new_frame")
     input_topic  = rospy.get_param("~img_topic")
 
-    parameters = {"detector" : 'orb',"matcher" : 'bf'}
+    parameters = {"detector" : 'sift',"matcher" : 'bf'}
 
     # init only defines matcher object
     orb_vo = UWVisualOdometry(parameters,input_topic)

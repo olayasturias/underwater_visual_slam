@@ -170,19 +170,15 @@ class VisualOdometry(object):
         # 1
         self.matcher.match(image1, image2)
         # 2
-        self.kp1 = self.matcher.kp_list_to_np(self.matcher.good_kp1)
-        self.kp2 = self.matcher.kp_list_to_np(self.matcher.good_kp2)
-        self.FindFundamentalRansac(self.kp1,
-                                   self.kp2,
-                                   'RANSAC')
+        self.kp1 = np.asarray([item.pt for item in self.matcher.good_kp1])
+        self.kp2 = np.asarray([item.pt for item in self.matcher.good_kp2])
+        self.FindFundamentalRansac(self.kp1, self.kp2,'RANSAC')
         self.reject_outliers()
-        self.kp1 = self.matcher.kp_list_to_np(self.matcher.good_kp1)
-        self.kp2 = self.matcher.kp_list_to_np(self.matcher.good_kp2)
-
+        self.kp1 = np.asarray([item.pt for item in self.matcher.good_kp1])
+        self.kp2 = np.asarray([item.pt for item in self.matcher.good_kp2])
         # 3
-        self.FindFundamentalRansac(self.kp1,
-                                   self.kp2,
-                                   'RANSAC')
+        self.FindFundamentalRansac(self.kp1,self.kp2,'RANSAC')
+
         if optimize:
             # 4
             self.structure = self.triangulate(self.kp1, self.kp2)
@@ -199,18 +195,10 @@ class VisualOdometry(object):
         desc1 = np.asarray(self.matcher.good_desc1)[mask]
         desc2 = np.asarray(self.matcher.good_desc2)[mask]
 
-        KRt = []
-        KRt = np.append(np.hstack(self.cam.K),
-                        (np.hstack(cv2.Rodrigues(self.cam.R)[0]), np.hstack(self.cam.t)))
-
-        sol, F = self.optimize_Fv2(KRt, self.structure, self.kp2)
-        print self.F
-        print F
-
         # 8
         cam1 = Camera()
         cam1.set_index(self.index)
-        cam1.set_P(self.create_P1())
+        cam1.set_P(np.array([[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0]]))
         # cam1.is_keyframe()
         cam1.set_points(self.kp1)
         cam1.set_descriptors(desc1)
@@ -547,7 +535,10 @@ class VisualOdometry(object):
         """
         if F is None:
             F = self.F
-        e = self.get_epipole(F.T)  # Left epipole
+        #e = self.get_epipole(F.T)  # Left epipole
+        U, S, V = linalg.svd(F.T)
+        e = V[-1]
+        e = e / e[2]
 
         skew_e = self.skew(e)
         return (np.vstack((np.dot(skew_e, F.T).T, e)).T)
@@ -718,7 +709,7 @@ class VisualOdometry(object):
 
         self.structure = points3d  # 3 x n matrix
 
-        cv2.convertPointsFromHomogeneous(np.float32(points3D.T)
+        cv2.convertPointsFromHomogeneous(np.float32(points3D.T))
 
         return points3d
 
@@ -846,12 +837,14 @@ class VisualOdometry(object):
             self.cam.set_R(R)
             self.cam.set_t(t)
             P2 = self.cam.Rt2P(R, t, self.cam.K)
-            P1 = np.dot(self.cam.K, self.create_P1())
+            P1 = np.dot(self.cam.K,
+                        np.array([[1, 0, 0, 0],
+                                  [0, 1, 0, 0],
+                                  [0, 0, 1, 0]]))
         else:
             P2 = self.P_from_F()
-            P1 = self.create_P1()
+            P1 = np.array([[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0]])
         points3D = cv2.triangulatePoints(P1, P2, kpts1, kpts2)
-        points3D = points3D / points3D[3]
         euclideanPoints = []
         euclideanPoints = cv2.convertPointsFromHomogeneous(np.float32(points3D.T))
         return euclideanPoints
@@ -986,13 +979,13 @@ class VisualOdometry(object):
             # This problem has  the form Ax = 0: its an homogeneous equation
             u,s,vt = np.linalg.svd(Ft,full_matrices=True)
             e1 = vt[:,2]
-            e1 = cv2.convertPointsFromHomogeneous(e1.T))
+            e1 = cv2.convertPointsFromHomogeneous(e1.T)
             # e'^T*F = 0
             # To give i t the form Ax=0, we transpose to change the form
             # F^Te' = 0
             u,s,vt = np.linalg.svd(Ft.T,full_matrices=True)
             e2 = vt[:,2]
-            e1 = cv2.convertPointsFromHomogeneous(e2.T))
+            e1 = cv2.convertPointsFromHomogeneous(e2.T)
             # Form the rotation matrices
             R1 = np.matrix('e1[0] e1[1] 0; -e1[1] e1[0] 0; 0 0 1')
             R2 = np.matrix('e2[0] e2[1] 0; -e2[1] e2[0] 0; 0 0 1')
@@ -1044,45 +1037,27 @@ class VisualOdometry(object):
 
 
         """
-        P1 = self.create_P1()
+        P1 = np.array([[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0]])
         P2 = params[0:12].reshape(3, 4)
         p = params[12:len(params)]
         l = p.shape
         X = np.reshape(p, (l[0] / 3, 3)).T # 3xn matrix
-        # Make homogeneous
-        X = self.make_homog(X)
+        # Make homogeneous by appending a row of ones
+        X = np.vstack((X, np.ones((1, X.shape[1]))))
+
         # Project the structure
         x1_est = np.dot(P1, X)
-        x1_est = x1_est / x1_est[2]
-        x1_est = x1_est[:2, :]
+        # Convert from homogeneus
+        x1_est = (x1_est/x1_est[2])[:2, :]
+        # Same with x2
         x2_est = np.dot(P2, X)
-        x2_est = x2_est / x2_est[2]
-        x2_est = x2_est[:2, :]
+        x2_est = (x2_est/x2_est[2])[:2, :]
 
-        error_image1 = self.residual(x1, x1_est.T).ravel()
-        error_image2 = self.residual(x2, x2_est.T).ravel()
+
+        error_image1 = (x1 - x1_est.T).ravel()
+        error_image2 = (x2 - x2_est.T).ravel()
         error = np.append(error_image1, error_image2)
         return error
-
-    def residual(self, x1, x2):
-        """Given two nx2 vectors :math:`\\mathbf{x}` and
-        :math:`\\hat{\\mathbf{x}}`, compute the difference between their
-        coordinates:
-
-        .. math::
-
-            residual_i(\\mathbf{x}_i, \\hat{\\mathbf{x}}_i) = (x_i-\\hat{x}_i,
-            y_i-\\hat{y}_i)
-
-        :param x1: :math:`\\mathbf{x}`
-        :param x2: :math:`\\hat{\\mathbf{x}}`
-        :type x1: Numpy nx2 ndarray
-        :type x2: Numpy nx2 ndarray
-        :returns: Residual vector :math:`\\mathbf{x} - \\hat{\\mathbf{x}}`
-        :rtype: Numpy nx2 ndarray
-
-        """
-        return x1-x2
 
     def optimize_F(self, x1, x2, F=None, structure=None,
                    method='lm', robust_cost_f='linear'):
@@ -1179,34 +1154,31 @@ class VisualOdometry(object):
         # Transform the structure (matrix 3 x n) to 1d vector
         if structure is None:
             structure = self.structure
-        vec_str = structure[:, :3]  # The ones aren't parameters
-        vec_str = vec_str.reshape(-1)
+        vec_str = structure.reshape(-1)
         param = vec_P2
         param = np.append(param, vec_str)
         solution = optimize.least_squares(self.func, param, method=method,
-                                          args=(x1, x2), loss=robust_cost_f)
+                                          args=(x1, x2), loss=robust_cost_f,
+                                          ftol = 1e-3, xtol = 1e-3)
         P = solution.x[:12].reshape((3, 4))
         M = P[:, :3]
         t = P[:, 3]
         F = np.dot(self.skew(t), M)
         return solution, F
 
-    def optimize_Fv2(self, KRt, X, x, structure=None,
-                   method='lm', robust_cost_f='linear'):
-
-
-        solution = optimize.least_squares(self.reprojection_error,
-                                          KRt, method=method,
-                                          args=(X, x), loss=robust_cost_f)
-        K = np.reshape(solution.x[0:9],(3,3))
-        Rvector = solution.x[9:12]
-        t = solution.x[12:15]
-
-        # P = solution.x[:12].reshape((3, 4))
-        # M = P[:, :3]
-        # t = P[:, 3]
-        F = np.dot(self.skew(t), cv2.Rodrigues(Rvector)[0])
-        return solution, F
+    def mask_reprojection(self, K,R,t, points3D, x):
+        # Reprojection of the 3D points to 2D points on the image.
+        # A large reprojection distance may indicate an error in triangulation,
+        # so we may not want to include this point in the final result.
+        # High average reprojection rates may point to a problem with
+        # the P matrices, and therefore a possible problem with
+        # the calculation of the essential matrix or the matched feature points.
+        Rvector,_ = cv2.Rodrigues(R)
+        # reproject points
+        imgpoints, jacobian = cv2.projectPoints(points3D, Rvector, t, K, distCoeffs = None)
+        # check individual reprojection error
+        diff =  x - np.reshape(imgpoints,x.shape)
+        return diff
 
     def E_from_F(self, F=None, K=None):
         """ This method computes the Essential matrix from the Fundamental

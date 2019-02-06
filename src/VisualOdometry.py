@@ -1,3 +1,5 @@
+#!/usr/bin/env python
+import rospy
 import numpy as np
 import cv2
 from scipy import linalg
@@ -8,6 +10,9 @@ from Matcher import Matcher
 from Camera import Camera
 from Map import Map
 from MapPoint import MapPoint
+from nav_msgs.msg import Odometry
+from geometry_msgs.msg import Point, Pose, Quaternion
+from pyquaternion import Quaternion as pyquat
 
 """
 .. codeauthor:: Olaya
@@ -146,6 +151,7 @@ class VisualOdometry(object):
         self.scene = Map()
         self.delta_t = 0.0
         self.delta_R = np.identity(3)
+        self.odom_pub = rospy.Publisher('visual_odom',Odometry, queue_size = 5)
 
     def init_reconstruction(self, optimize=True, image1 = None, image2 = None):
         """ Performs the first steps of the reconstruction.
@@ -240,7 +246,27 @@ class VisualOdometry(object):
 
         # Increment Visual Odometry measurements
         self.delta_R = np.matmul(self.delta_R, self.cam.R)
+        # Increments done on deltaR to avoid singularities and discontinuities.
+        # This has the effect that different values could represent the same
+        # rotation, for example quaternion q and -q represent the same rotation.
+        # It is therefore possible that, when converting a rotation sequence,
+        # the output may jump between these equivalent forms.
+        # This could cause problems where subsequent operations such as
+        # differentiation are done on this data.
+        quaternion = pyquat(matrix = self.delta_R).elements
         self.delta_t += self.cam.t
+
+        # Publish
+        odom = Odometry()
+        odom.header.stamp  = rospy.Time.now()
+        odom.header.frame_id = 'vodom'
+        odom.child_frame_id = 'base_link'
+        # pyquaternion uses different order than ROS
+        odom.pose.pose = Pose(Point(self.delta_t[0],self.delta_t[1],self.delta_t[2]),
+                              Quaternion(quaternion[3],quaternion[0],
+                                        quaternion[1], quaternion[2]))
+
+        self.odom_pub.publish(odom)
 
     def track_local_map(self):
         """ Tracks the local map.

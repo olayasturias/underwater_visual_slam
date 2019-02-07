@@ -2,8 +2,27 @@
 
 <launch>
 
+  <arg name="odom_topic" default="/visual_odom" />
+  <arg name="barom_topic" default="/bar30/pressure" />
+  <arg name="atm_pressure" default="886" />
+  <arg name="fluid_density" default="997" />
+  <arg name="img_topic" default="/BlueRov2/image_corrected" />
+  <arg name="uw_img_topic" default="/BlueRov2/image" />
+
   <node respawn="false" pkg="underwater_visual_slam" type="UWRobot_VO.py" name="rov_vo" output ="screen">
-    <param name="img_topic" value="/BlueRov2/image_corrected" />
+    <param name="img_topic" value="$(arg img_topic)" />
   </node>
+
+  <node respawn="false" pkg="underwater_visual_slam" type="scale_estimation.py" name="rov_escale" output ="screen">
+    <param name="odom_topic" value="$(arg odom_topic)" />
+    <param name="barom_topic" value="$(arg barom_topic)" />
+    <param name="atm_pressure" value="$(arg atm_pressure)" />
+    <param name="fluid_density" value="$(arg fluid_density)" />
+  </node>
+
+<!-- publish corrected video -->
+<node respawn="true" pkg="bluerov_ros_playground" type="rectify_video.py" name="rectify_video">
+  <param name="uw_img_topic" value="$(arg uw_img_topic)" />
+</node>
 
 </launch>

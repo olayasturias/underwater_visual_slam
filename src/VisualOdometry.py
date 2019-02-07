@@ -151,7 +151,7 @@ class VisualOdometry(object):
         self.scene = Map()
         self.delta_t = 0.0
         self.delta_R = np.identity(3)
-        self.odom_pub = rospy.Publisher('visual_odom',Odometry, queue_size = 5)
+        self.odom_pub = rospy.Publisher('/visual_odom',Odometry, queue_size = 5)
 
     def init_reconstruction(self, optimize=True, image1 = None, image2 = None):
         """ Performs the first steps of the reconstruction.
@@ -1222,6 +1222,7 @@ class VisualOdometry(object):
         imgpoints, jacobian = cv2.projectPoints(points3D, Rvector, t, K, distCoeffs = None)
         # check individual reprojection error
         diff =  x - np.reshape(imgpoints,x.shape)
+        print diff
 
         mask = [np.linalg.norm(res,axis = 0) < 0.1 for res in diff]
         return mask

@@ -226,8 +226,8 @@ class Matcher(object):
             # False because we are going to check the matches ourselves.
             self.matcher = cv2.BFMatcher(self.norm, crossCheck=False)
 
-        self.kp1 = []
-        self.kp2 = []
+        self.kp1 = None
+        self.kp2 = None
         self.desc1 = None
         self.desc2 = None
         self.ratio = 0.65
@@ -296,7 +296,12 @@ class Matcher(object):
         self.good_desc1 = []
         self.good_desc2 = []
         self.good_matches = None
+        # if self.kp1 is None or self.desc1 is None:
         self.kp1, self.desc1 = self.detector.detectAndCompute(img_prev, None)
+        # else:
+        #     self.kp1 = self.good_kp2
+        #     self.desc1 = self.good_desc2
+
         self.kp2, self.desc2 = self.detector.detectAndCompute(img_new, None)
         # There are any keypoints?
         if not self.kp1 or not self.kp2:
@@ -440,7 +445,6 @@ class Matcher(object):
                                 for m2 in matches2 for m1 in matches1
                                 if (m1[0].queryIdx) == (m2[0].trainIdx) and \
                                 (m2[0].queryIdx) == (m1[0].trainIdx)])
-
         return sel_matches
 
     def filter_matches(self, matches1, matches2):

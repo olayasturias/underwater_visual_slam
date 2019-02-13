@@ -10,6 +10,7 @@ import pandas as pd
 import time
 import datetime
 from sensor_msgs.msg import Image
+from VideoCorrections import VideoCorrect
 
 """
 .. codeauthor:: Olaya
@@ -31,6 +32,9 @@ class UWVisualOdometry(object):
         log.to_csv(self.strfile)
         rospy.loginfo('saving log file in %s',self.strfile)
 
+        # Create filter image instance for video VideoCorrections
+        self.videocorrect = VideoCorrect()
+
         # Create Visual Odometry instance
         self.vo = VisualOdometry(params)
 
@@ -47,23 +51,26 @@ class UWVisualOdometry(object):
         to cv image using cv_bridge.
         """
         rospy.logdebug('Received image topic...')
+        start = time.time()
         bridge = CvBridge()
+        # Read and convert data
+        current_frame = bridge.imgmsg_to_cv2(data, "bgr8")
+
+        corrected = self.videocorrect.filter(current_frame)
+        end = time.time()
+        rospy.logdebug('Time taking for homomorphic %s',end-start)
+
+        self.new_frame = corrected
+        # If first iteration, copy image twice
+        if not self.old_frame.size:
+            self.old_frame = self.new_frame.copy()
+
+        # Prepare csv for log file
+        saved = pd.read_csv(self.strfile,index_col=0,header=0)
         try:
-            # Read and convert data
-            current_frame = bridge.imgmsg_to_cv2(data, "mono8")
-
-            self.new_frame = current_frame
-            # If first iteration, copy image twice
-            if not self.old_frame.size:
-                self.old_frame = self.new_frame.copy()
-
-            # Prepare csv for log file
-            saved = pd.read_csv(self.strfile,index_col=0,header=0)
-
             # Do VO stuff.. If you can!!
             # try:
-            start = time.time()
-            self.vo.init_reconstruction(optimize = False,
+            self.vo.init_reconstruction(optimize = True,
                                             image1 = self.old_frame,
                                             image2 = self.new_frame)
             # Log time  taken
@@ -123,14 +130,14 @@ class UWVisualOdometry(object):
 def main(args):
     # main
     rospy.init_node('rov_vo', anonymous=True,log_level=rospy.DEBUG)
-    rate = rospy.Rate(1) # 1 Hz
+    rate = rospy.Rate(500) # 1 Hz
 
     # Read parameters from console (o launch file)
     # old_frame    = rospy.get_param("~old_frame")
     # new_frame    = rospy.get_param("~new_frame")
     input_topic  = rospy.get_param("~img_topic")
 
-    parameters = {"detector" : 'orb',"matcher" : 'bf'}
+    parameters = {"detector" : 'sift',"matcher" : 'bf'}
 
     # init only defines matcher object
     orb_vo = UWVisualOdometry(parameters,input_topic)
@@ -138,8 +145,7 @@ def main(args):
 
 
 
-    while not rospy.is_shutdown():
-        pass
+    rospy.spin()
 
 
     cv2.destroyAllWindows()

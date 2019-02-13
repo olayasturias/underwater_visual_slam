@@ -6,6 +6,7 @@ from scipy import linalg
 from scipy import optimize
 from math import cos, sin, exp
 import os
+import time
 from Matcher import Matcher
 from Camera import Camera
 from Map import Map
@@ -142,6 +143,7 @@ class VisualOdometry(object):
         self.matcher = Matcher(params)
         self.F = None
         self.mask = None
+        self.maskE = None
         self.H = None
         self.right_e = None
         self.left_e = None
@@ -149,7 +151,7 @@ class VisualOdometry(object):
         self.E = None  # Essential matrix
         self.index = 0
         self.scene = Map()
-        self.delta_t = 0.0
+        self.delta_t = np.zeros((3,1))
         self.delta_R = np.identity(3)
         self.odom_pub = rospy.Publisher('/visual_odom',Odometry, queue_size = 5)
 
@@ -174,42 +176,52 @@ class VisualOdometry(object):
 
         """
         # 1
+        start = time.time()
         self.matcher.match(image1, image2)
+        end = time.time()
+        rospy.logdebug('Time taking for matching %s',end-start)
+        self.image2 = []
+        self.image2 = image2
         # 2
         self.kp1 = np.asarray([item.pt for item in self.matcher.good_kp1])
         self.kp2 = np.asarray([item.pt for item in self.matcher.good_kp2])
-        self.FindFundamentalRansac(self.kp1, self.kp2,'RANSAC')
+
+        self.FindEssentialRansac(self.kp1,self.kp2, self.cam.K)
+
         self.reject_outliers()
         self.kp1 = np.asarray([item.pt for item in self.matcher.good_kp1])
         self.kp2 = np.asarray([item.pt for item in self.matcher.good_kp2])
+
         # 3
-        self.FindFundamentalRansac(self.kp1,self.kp2,'RANSAC')
+        self.FindEssentialRansac(self.kp1,self.kp2, self.cam.K)
+
 
 
         if not optimize:
             # 4
             self.structure = self.triangulate(self.kp1, self.kp2, euclidean = True)
             reproj_mask = self.mask_reprojection(self.cam.K, self.cam.R, self.cam.t,
-                                                 self.structure,self.kp2)
+                                                 self.structure,self.kp1,self.kp2)
             if any(reproj_mask):
                 self.kp1 = self.kp1[reproj_mask]
                 self.kp2 = self.kp2[reproj_mask]
                 self.matcher.good_desc1 = np.asarray(self.matcher.good_desc1)[reproj_mask]
                 self.matcher.good_desc2 = np.asarray(self.matcher.good_desc2)[reproj_mask]
-                self.FindFundamentalRansac(self.kp1,self.kp2,'RANSAC')
+                self.FindEssentialRansac(self.kp1,self.kp2,self.cam.K)
             else:
-                optimize = True
+                pass
+                #optimize = True
+        #
+        # if optimize:
+        #     # 4
+        #     self.structure = self.triangulate(self.kp1, self.kp2, euclidean=False)
+        #     # 5
+        #     if (12+len(self.structure))>(len(self.kp1+len(self.kp2))):
+        #         sol, F = self.optimize_F(self.kp1, self.kp2, self.E, self.structure)
+        #         self.F = F
 
-        if optimize:
-            # 4
-            self.structure = self.triangulate(self.kp1, self.kp2)
-            # 5
-            if (12+len(self.structure))<(len(self.kp1+len(self.kp2))):
-                sol, F = self.optimize_F(self.kp1, self.kp2, self.F, self.structure)
-                self.F = F
-
-        # 6
-        self.structure = self.triangulate(self.kp1, self.kp2, euclidean=True)
+        # # 6
+        self.structure = self.triangulate(self.kp1, self.kp2,E = self.E ,euclidean=True)
         # 7
         self.structure, mask = self.filter_z(self.structure)
 
@@ -217,6 +229,9 @@ class VisualOdometry(object):
         self.kp2 = self.kp2[mask]
         desc1 = np.asarray(self.matcher.good_desc1)[mask]
         desc2 = np.asarray(self.matcher.good_desc2)[mask]
+
+        reproj_mask = self.mask_reprojection(self.cam.K, self.cam.R, self.cam.t,
+                                            self.structure,self.kp1,self.kp2)
 
 
         # 8
@@ -244,8 +259,13 @@ class VisualOdometry(object):
         self.cam.is_keyframe()
         self.index += 1
 
+        rvec,tvec = cv2.composeRT(cv2.Rodrigues(self.delta_R)[0],self.delta_t,
+                                  cv2.Rodrigues(self.cam.R)[0],self.cam.t)[:2]
+
+
         # Increment Visual Odometry measurements
-        self.delta_R = np.matmul(self.delta_R, self.cam.R)
+        # self.delta_R = np.matmul(self.delta_R, self.cam.R)
+
         # Increments done on deltaR to avoid singularities and discontinuities.
         # This has the effect that different values could represent the same
         # rotation, for example quaternion q and -q represent the same rotation.
@@ -253,9 +273,8 @@ class VisualOdometry(object):
         # the output may jump between these equivalent forms.
         # This could cause problems where subsequent operations such as
         # differentiation are done on this data.
-        quaternion = pyquat(matrix = self.delta_R).elements
-        self.delta_t += self.cam.t
-
+        quaternion = pyquat(matrix = cv2.Rodrigues(rvec)[0]).elements
+        self.delta_t = tvec
         # Publish
         odom = Odometry()
         odom.header.stamp  = rospy.Time.now()
@@ -318,7 +337,7 @@ class VisualOdometry(object):
             self.kitti.read_image()
         return mask, lk_prev_points, lk_next_points
 
-    def FindFundamentalRansac(self, kpts1, kpts2, method=cv2.FM_RANSAC, tol=1):
+    def FindFundamentalRansac(self, kpts1, kpts2, method=cv2.FM_RANSAC, tol=1e-4):
         """ Computes the Fundamental matrix from two set of KeyPoints, using
         a RANSAC_ scheme.
 
@@ -388,10 +407,11 @@ class VisualOdometry(object):
         methods.
 
         """
-        if self.mask is None:
+        if self.mask is None :
             pass
         else:
             msk_lst = self.mask.tolist()
+
             self.matcher.good_kp1 = [d for d, s in zip(self.matcher.good_kp1,
                                                        msk_lst) if s[0] == 1]
             self.matcher.good_desc1 = [d for d, s in zip(self.matcher.good_desc1,
@@ -452,7 +472,7 @@ class VisualOdometry(object):
         lines = lines.reshape(-1, 3)
         return lines
 
-    def FindEssentialRansac(self, kpts1, kpts2):
+    def FindEssentialRansac(self, kpts1, kpts2, camera_matrix):
         # Compute Essential matrix from a set of corresponding points
         # @param kpts1: list of keypoints of the previous frame
         # @param kpts2: list of keypoints of the current frame
@@ -468,14 +488,20 @@ class VisualOdometry(object):
         # internally create the camera matrix, so they must be in pixel
         # coordinates. Hence, we take them from the already known camera matrix:
 
-        focal = 3.37
-        pp = (2.85738, 0.8681)
+        # focal = 3.37
+        # pp = (2.85738, 0.8681)
+
+        pp = tuple(camera_matrix[:2, 2])
+        f = camera_matrix[0, 0]
 
         # pp = (self.K[0][2], self.K[1][2])
+        print kpts1.shape
+        print kpts2.shape
 
-        self.E, self.maskE = cv2.findEssentialMat(kpts2, kpts1, focal, pp,
-                                                  cv2.RANSAC, 0.999, 1.0,
+        self.E, self.maskE = cv2.findEssentialMat(kpts2, kpts1, f, pp,
+                                                  cv2.RANSAC, 0.999, 1e-4,
                                                   self.maskE)
+        return self.E
 
     def FindHomographyRansac(self, kpts1, kpts2):
         # Find the homography between two images given corresponding points
@@ -794,7 +820,7 @@ class VisualOdometry(object):
         """
         return np.vstack((points, np.ones((1, points.shape[1]))))
 
-    def triangulate(self, kpts1, kpts2, F=None, euclidean=False):
+    def triangulate(self, kpts1, kpts2, F=None, E=None ,euclidean=False):
         """ Triangulate 3D points from image points in two views.
 
         This is the linear triangulation method, which is not an optimal method.
@@ -876,18 +902,16 @@ class VisualOdometry(object):
         if F is None:
             F = self.F
         if euclidean:
-            E = self.E_from_F(F)
+            if E is None:
+                E = self.E_from_F(F)
             R, t = self.get_pose(kpts1.T, kpts2.T, self.cam.K, E)
             self.cam.set_R(R)
             self.cam.set_t(t)
             P2 = self.cam.Rt2P(R, t, self.cam.K)
-            P1 = np.dot(self.cam.K,
-                        np.array([[1, 0, 0, 0],
-                                  [0, 1, 0, 0],
-                                  [0, 0, 1, 0]]))
+            P1 = np.dot(self.cam.K, self.create_P1())
         else:
             P2 = self.P_from_F()
-            P1 = np.array([[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0]])
+            P1 = self.create_P1()
         points3D = cv2.triangulatePoints(P1, P2, kpts1, kpts2)
         euclideanPoints = []
         euclideanPoints = cv2.convertPointsFromHomogeneous(np.float32(points3D.T))
@@ -1097,7 +1121,6 @@ class VisualOdometry(object):
         x2_est = np.dot(P2, X)
         x2_est = (x2_est/x2_est[2])[:2, :]
 
-
         error_image1 = (x1 - x1_est.T).ravel()
         error_image2 = (x2 - x2_est.T).ravel()
         error = np.append(error_image1, error_image2)
@@ -1203,14 +1226,15 @@ class VisualOdometry(object):
         param = np.append(param, vec_str)
         solution = optimize.least_squares(self.func, param, method=method,
                                           args=(x1, x2), loss=robust_cost_f,
-                                          ftol = 1e-3, xtol = 1e-3)
+                                          ftol = 1e-8, xtol = 1e-8)
         P = solution.x[:12].reshape((3, 4))
         M = P[:, :3]
         t = P[:, 3]
         F = np.dot(self.skew(t), M)
         return solution, F
 
-    def mask_reprojection(self, K,R,t, points3D, x):
+
+    def mask_reprojection(self, K,R,t, points3D, x1,x2, draw = False):
         # Reprojection of the 3D points to 2D points on the image.
         # A large reprojection distance may indicate an error in triangulation,
         # so we may not want to include this point in the final result.
@@ -1221,8 +1245,22 @@ class VisualOdometry(object):
         # reproject points
         imgpoints, jacobian = cv2.projectPoints(points3D, Rvector, t, K, distCoeffs = None)
         # check individual reprojection error
-        diff =  x - np.reshape(imgpoints,x.shape)
-        print diff
+        X = np.append(points3D[0],1.)
+        P2 = self.cam.Rt2P(R, t, K)
+        #print np.dot(P2,self.structure[0])
+        x2_est = np.dot(P2,X)
+        diff =  x1 - np.reshape(imgpoints,x2.shape)
+
+        if draw:
+            imgcolor = cv2.cvtColor(self.image2,cv2.COLOR_GRAY2BGR)
+
+            for point in x1:
+                cv2.circle(imgcolor,(int(point[0]),int(point[1])), 6,(0,0,255),-1) #rojo
+
+            for point in  np.reshape(imgpoints,x2.shape):
+                cv2.circle(imgcolor,(int(point[0]),int(point[1])), 6,(0,255,0),-1)
+            cv2.imshow('matches', imgcolor)
+            cv2.waitKey(3)
 
         mask = [np.linalg.norm(res,axis = 0) < 0.1 for res in diff]
         return mask
@@ -1264,6 +1302,7 @@ class VisualOdometry(object):
             F = self.F
         if K is None:
             K = self.cam.K
+        #self.E = K.transpose().dot(F).dot(K)
         self.E = K.transpose().dot(F).dot(K)
         return self.E
 

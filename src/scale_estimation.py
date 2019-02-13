@@ -40,16 +40,18 @@ class ScaleEstimation(object):
     def barometer_callback(self, data):
         self.barometer_queue.put(data.fluid_pressure)
         self.barometer_covar = data.variance
+        if data.variance == 0:
+            self.barometer_covar = 0.0787
 
     def vodometry_callbak(self,data):
         self.vodometry_array[1] = self.vodometry_array[0]
         self.vodometry_array[0] = data.pose.pose.position.z
-        self.vodometry_covar = 3.0
+        self.vodometry_covar = 0.319775 # in meters!!
 
         barometer = self.queue_get_all(self.barometer_queue)
         self.barometer_array[1] = self.barometer_array[0]
         # hydrostatic equation
-        self.barometer_array[0] = (np.mean(barometer)*100-self.P0)/(self.rho*9.85)
+        self.barometer_array[0] = (np.mean(barometer)-self.P0)/(self.rho*9.85)
 
         scaled_vo = self.scale_estimation(data.pose.pose.position)
 
@@ -78,10 +80,15 @@ class ScaleEstimation(object):
 
 
     def scale_estimation(self, vo_data):
+
         xi = self.vodometry_array[0]-self.vodometry_array[1]
         yi = self.barometer_array[0]-self.barometer_array[1]
 
         Sxx = self.barometer_covar**2*xi**2
+        # print self.barometer_covar
+        # print self.barometer_covar**2
+        # print xi**2
+        # print 'sxx', Sxx
         Syy = self.vodometry_covar**2*yi**2
         Sxy = self.barometer_covar*self.vodometry_covar*xi*yi
 
@@ -125,9 +132,7 @@ def main(args):
 
 
 
-    while not rospy.is_shutdown():
-        rospy.sleep(1)
-        pass
+    rospy.spin()
 
 
     cv2.destroyAllWindows()

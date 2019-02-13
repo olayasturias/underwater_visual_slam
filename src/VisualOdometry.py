@@ -185,15 +185,21 @@ class VisualOdometry(object):
         # 2
         self.kp1 = np.asarray([item.pt for item in self.matcher.good_kp1])
         self.kp2 = np.asarray([item.pt for item in self.matcher.good_kp2])
+        start = time.time()
+        self.FindFundamentalRansac(self.kp1,self.kp2, self.cam.K)
+        end = time.time()
+        rospy.logdebug('Time taking for first essential matrix %s',end-start)
 
-        self.FindEssentialRansac(self.kp1,self.kp2, self.cam.K)
-
+        start = time.time()
         self.reject_outliers()
         self.kp1 = np.asarray([item.pt for item in self.matcher.good_kp1])
         self.kp2 = np.asarray([item.pt for item in self.matcher.good_kp2])
-
         # 3
         self.FindEssentialRansac(self.kp1,self.kp2, self.cam.K)
+
+        end = time.time()
+        rospy.logdebug('Time taking for second essential matrix %s',end-start)
+
 
 
 
@@ -495,8 +501,6 @@ class VisualOdometry(object):
         f = camera_matrix[0, 0]
 
         # pp = (self.K[0][2], self.K[1][2])
-        print kpts1.shape
-        print kpts2.shape
 
         self.E, self.maskE = cv2.findEssentialMat(kpts2, kpts1, f, pp,
                                                   cv2.RANSAC, 0.999, 1e-4,

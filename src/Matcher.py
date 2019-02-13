@@ -296,19 +296,21 @@ class Matcher(object):
         self.good_desc1 = []
         self.good_desc2 = []
         self.good_matches = None
-        # if self.kp1 is None or self.desc1 is None:
-        self.kp1, self.desc1 = self.detector.detectAndCompute(img_prev, None)
-        # else:
-        #     self.kp1 = self.good_kp2
-        #     self.desc1 = self.good_desc2
+        if self.kp1 is None or self.desc1 is None:
+            self.kp1, self.desc1 = self.detector.detectAndCompute(img_prev, None)
+        else:
+            self.kp1 = self.kp2
+            self.desc1 = self.desc2
 
         self.kp2, self.desc2 = self.detector.detectAndCompute(img_new, None)
+
         # There are any keypoints?
         if not self.kp1 or not self.kp2:
             return 1
         else:
             if np.size(self.desc1) == 0 or np.size(self.desc2) == 0:
                 return 2
+
         # Cross compute matches
         self.matches1 = self.matcher.knnMatch(self.desc1, self.desc2, 2)
         self.matches2 = self.matcher.knnMatch(self.desc2, self.desc1, 2)
@@ -319,6 +321,8 @@ class Matcher(object):
         else:
             self.good_matches = self.filter_matches(self.matches1,
                                                     self.matches2)
+            # print len(self.good_kp2)
+            # print len(self.good_desc2)
             return 0
 
     def filter_distance(self, matches):

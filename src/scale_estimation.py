@@ -135,8 +135,6 @@ def main(args):
     rospy.spin()
 
 
-    cv2.destroyAllWindows()
-
 if __name__ == '__main__':
     try:
         main(sys.argv)

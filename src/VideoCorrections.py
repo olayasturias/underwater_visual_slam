@@ -28,7 +28,8 @@ class VideoCorrect():
     def filter(self,img):
         undistorted = self.correct(img)
 
-        small = cv2.resize(undistorted,(0,0), fx=0.75, fy=0.75)
+        #small = cv2.resize(undistorted,(0,0), fx=0.75, fy=0.75)
+        small = undistorted
         del undistorted
 
 

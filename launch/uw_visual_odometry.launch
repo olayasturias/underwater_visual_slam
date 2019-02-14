@@ -9,7 +9,7 @@
   <arg name="img_topic" default="/BlueRov2/image" />
   <arg name="uw_img_topic" default="/BlueRov2/image" />
 
-  <node respawn="false" pkg="underwater_visual_slam" type="UWRobot_VO.py" name="rov_vo" output ="screen">
+  <node respawn="false" pkg="underwater_visual_slam" type="UWRobot_VO.py" name="UWRobot_VO" output ="screen" >
     <param name="img_topic" value="$(arg img_topic)" />
   </node>
 

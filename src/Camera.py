@@ -88,8 +88,8 @@ class Camera(object):
     """
     def __init__(self, K=None):
         if K is None:
-            self.K = np.array([[1.0, 0.0, 0.0],
-                               [0.0, 1.0, 0.0],
+            self.K = np.array([[413.32595366566017, 0.0, 305.9507483284928],
+                               [0.0, 413.70198739483686, 259.4439948946375],
                                [0.0, 0.0, 1.0]])
         else:
             self.set_K(K)

@@ -7,6 +7,7 @@ from scipy import optimize
 from math import cos, sin, exp
 import os
 import time
+import timeout_decorator
 from Matcher import Matcher
 from Camera import Camera
 from Map import Map
@@ -20,6 +21,10 @@ from pyquaternion import Quaternion as pyquat
 : file VisualOdometry.py
 """
 
+class TimeoutExcp(Exception):
+    def __init__(self):
+        rospy.logwarn('Timeout at optimization')
+        return
 
 
 class VisualOdometry(object):
@@ -153,6 +158,7 @@ class VisualOdometry(object):
         self.scene = Map()
         self.delta_t = np.zeros((3,1))
         self.delta_R = np.identity(3)
+        self.reprojection_error_mean = 0
         self.odom_pub = rospy.Publisher('/visual_odom',Odometry, queue_size = 5)
 
     def init_reconstruction(self, optimize=True, image1 = None, image2 = None):
@@ -186,7 +192,7 @@ class VisualOdometry(object):
         self.kp1 = np.asarray([item.pt for item in self.matcher.good_kp1])
         self.kp2 = np.asarray([item.pt for item in self.matcher.good_kp2])
         start = time.time()
-        self.FindFundamentalRansac(self.kp1,self.kp2, self.cam.K)
+        self.F = self.FindFundamentalRansac(self.kp1,self.kp2, method = 'RANSAC')
         end = time.time()
         rospy.logdebug('Time taking for first essential matrix %s',end-start)
 
@@ -195,12 +201,12 @@ class VisualOdometry(object):
         self.kp1 = np.asarray([item.pt for item in self.matcher.good_kp1])
         self.kp2 = np.asarray([item.pt for item in self.matcher.good_kp2])
         # 3
-        self.FindEssentialRansac(self.kp1,self.kp2, self.cam.K)
+        self.F = self.FindFundamentalRansac(self.kp1,self.kp2, method = 'RANSAC')
 
         end = time.time()
         rospy.logdebug('Time taking for second essential matrix %s',end-start)
 
-
+        start = time.time()
 
 
         if not optimize:
@@ -216,18 +222,21 @@ class VisualOdometry(object):
                 self.FindEssentialRansac(self.kp1,self.kp2,self.cam.K)
             else:
                 pass
-                #optimize = True
-        #
-        # if optimize:
-        #     # 4
-        #     self.structure = self.triangulate(self.kp1, self.kp2, euclidean=False)
-        #     # 5
-        #     if (12+len(self.structure))>(len(self.kp1+len(self.kp2))):
-        #         sol, F = self.optimize_F(self.kp1, self.kp2, self.E, self.structure)
-        #         self.F = F
+                optimize = True
 
-        # # 6
-        self.structure = self.triangulate(self.kp1, self.kp2,E = self.E ,euclidean=True)
+        if optimize:
+            # 4
+            self.structure = self.triangulate(self.kp1, self.kp2, euclidean=False)
+            # 5
+            if (12+len(self.structure))<(len(self.kp1)+len(self.kp2)):
+                sol, F = self.optimize_F(self.kp1, self.kp2, self.E, self.structure)
+                self.F = F
+
+
+        end = time.time()
+        rospy.logdebug('Time taking for optimization %s',end-start)
+        # 6
+        self.structure = self.triangulate(self.kp1, self.kp2,euclidean=True)
         # 7
         self.structure, mask = self.filter_z(self.structure)
 
@@ -237,7 +246,7 @@ class VisualOdometry(object):
         desc2 = np.asarray(self.matcher.good_desc2)[mask]
 
         reproj_mask = self.mask_reprojection(self.cam.K, self.cam.R, self.cam.t,
-                                            self.structure,self.kp1,self.kp2)
+                                            self.structure,self.kp1,self.kp2,draw=False)
 
 
         # 8
@@ -1130,6 +1139,8 @@ class VisualOdometry(object):
         error = np.append(error_image1, error_image2)
         return error
 
+
+    #@timeout_decorator.timeout(0.1,use_signals=False,timeout_exception=TimeoutExcp)
     def optimize_F(self, x1, x2, F=None, structure=None,
                    method='lm', robust_cost_f='linear'):
         """ Minimize the cost
@@ -1230,7 +1241,7 @@ class VisualOdometry(object):
         param = np.append(param, vec_str)
         solution = optimize.least_squares(self.func, param, method=method,
                                           args=(x1, x2), loss=robust_cost_f,
-                                          ftol = 1e-8, xtol = 1e-8)
+                                          ftol = 1e-8, xtol = 1e-3)
         P = solution.x[:12].reshape((3, 4))
         M = P[:, :3]
         t = P[:, 3]
@@ -1246,28 +1257,35 @@ class VisualOdometry(object):
         # the P matrices, and therefore a possible problem with
         # the calculation of the essential matrix or the matched feature points.
         Rvector,_ = cv2.Rodrigues(R)
-        # reproject points
-        imgpoints, jacobian = cv2.projectPoints(points3D, Rvector, t, K, distCoeffs = None)
-        # check individual reprojection error
-        X = np.append(points3D[0],1.)
-        P2 = self.cam.Rt2P(R, t, K)
-        #print np.dot(P2,self.structure[0])
-        x2_est = np.dot(P2,X)
-        diff =  x1 - np.reshape(imgpoints,x2.shape)
+        try:
+            # reproject points
+            imgpoints, jacobian = cv2.projectPoints(points3D, Rvector, t, K, distCoeffs = None)
+            # check individual reprojection error
+            X = np.append(points3D[0],1.)
+            P2 = self.cam.Rt2P(R, t, K)
+            #print np.dot(P2,self.structure[0])
+            x2_est = np.dot(P2,X)
+            diff =  x1 - np.reshape(imgpoints,x2.shape)
 
-        if draw:
-            imgcolor = cv2.cvtColor(self.image2,cv2.COLOR_GRAY2BGR)
+            if draw:
+                imgcolor = cv2.cvtColor(self.image2,cv2.COLOR_GRAY2BGR)
 
-            for point in x1:
-                cv2.circle(imgcolor,(int(point[0]),int(point[1])), 6,(0,0,255),-1) #rojo
+                for point in x1:
+                    cv2.circle(imgcolor,(int(point[0]),int(point[1])), 6,(0,0,255),-1) #rojo
 
-            for point in  np.reshape(imgpoints,x2.shape):
-                cv2.circle(imgcolor,(int(point[0]),int(point[1])), 6,(0,255,0),-1)
-            cv2.imshow('matches', imgcolor)
-            cv2.waitKey(3)
+                for point in  np.reshape(imgpoints,x2.shape):
+                    cv2.circle(imgcolor,(int(point[0]),int(point[1])), 6,(0,255,0),-1)
+                cv2.imshow('matches', imgcolor)
+                cv2.waitKey(3)
 
-        mask = [np.linalg.norm(res,axis = 0) < 0.1 for res in diff]
-        return mask
+            mask = [np.linalg.norm(res,axis = 0) < 0.1 for res in diff]
+            self.reprojection_error_mean = np.abs(np.mean(diff))
+            return mask
+        except:
+            rospy.logwarn('Cant reproject there are not 3D points')
+            mask = [True for kp in self.kp2]
+            self.reprojection_error_mean = 0
+            return mask
 
     def E_from_F(self, F=None, K=None):
         """ This method computes the Essential matrix from the Fundamental

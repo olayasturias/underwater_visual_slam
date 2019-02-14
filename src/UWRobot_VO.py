@@ -27,8 +27,7 @@ class UWVisualOdometry(object):
         #form str for csv file name
         self.strfile = '~/catkin_ws/' + params['detector'] + params['matcher'] +str(datetime.datetime.now()) + '.csv'
 
-        log = pd.DataFrame([['','','','']],
-                           columns = ['nfeatures','nmatches','ngoodmatches','ex_time'])
+        log = pd.DataFrame(columns = ['nfeatures','nmatches','ngoodmatches','reproj_error','ex_time'])
         log.to_csv(self.strfile)
         rospy.loginfo('saving log file in %s',self.strfile)
 
@@ -67,10 +66,11 @@ class UWVisualOdometry(object):
 
         # Prepare csv for log file
         saved = pd.read_csv(self.strfile,index_col=0,header=0)
+        self.vo.cam.K = self.videocorrect.K
         try:
             # Do VO stuff.. If you can!!
             # try:
-            self.vo.init_reconstruction(optimize = True,
+            self.vo.init_reconstruction(optimize = False,
                                             image1 = self.old_frame,
                                             image2 = self.new_frame)
             # Log time  taken
@@ -80,50 +80,57 @@ class UWVisualOdometry(object):
             rospy.loginfo('VO done in %s s', ttaken)
 
             new = pd.DataFrame([[len(self.vo.matcher.kp1),len(self.vo.matcher.matches1),
-                                     len(self.vo.matcher.good_matches),ttaken]],
-                                   columns = ['nfeatures','nmatches','ngoodmatches','ex_time'])
-            # except:
-            #     rospy.logwarn('Not enough matches in this pair of frames')
-            #     end = time.time()
-            #     ttaken = end-start
-            #     if not self.vo.matcher.kp1:
-            #         nkp1 = 0
-            #     else:
-            #         nkp1 = len(self.vo.matcher.kp1)
-            #     if not self.vo.matcher.matches1:
-            #         nmatches = 0
-            #     else:
-            #         nmatches = len(self.vo.matcher.matches1)
-            #     if not self.vo.matcher.good_matches:
-            #         ngood = 0
-            #     else:
-            #         ngood = len(self.vo.matcher.good_matches)
-            #     new = pd.DataFrame([[ nkp1, nmatches,
-            #                          ngood, ttaken]],
-            #                        columns = ['nfeatures','nmatches','ngoodmatches','ex_time'])
+                                     len(self.vo.matcher.good_matches),self.vo.reprojection_error_mean,ttaken]],
+                                   columns = ['nfeatures','nmatches','ngoodmatches','reproj_error','ex_time'])
+        except:
+            rospy.logwarn('Not enough matches in this pair of frames')
+            end = time.time()
+            ttaken = end-start
+            if not self.vo.matcher.kp1:
+                nkp1 = 0
+            else:
+                nkp1 = len(self.vo.matcher.kp1)
+            if not self.vo.matcher.matches1:
+                nmatches = 0
+            else:
+                nmatches = len(self.vo.matcher.matches1)
+            if not self.vo.matcher.good_matches:
+                ngood = 0
+            else:
+                ngood = len(self.vo.matcher.good_matches)
+            if not self.vo.reprojection_error_mean:
+                repr_err = 0
+            else:
+                repr_err = self.vo.reprojection_error_mean
+            new = pd.DataFrame([[ nkp1, nmatches,
+                                  ngood, repr_err ,ttaken]],
+                                   columns = ['nfeatures','nmatches',
+                                              'ngoodmatches','reproj_error',
+                                              'ex_time'])
 
-            log = pd.concat([saved,new])
-            #log.to_csv(self.strfile)
+        log = pd.concat([saved,new])
+        log.to_csv(self.strfile)
 
-            # Print things
-            imgmatch = self.new_frame.copy()
-            self.vo.matcher.draw_matches(img = imgmatch,
-                                         matches = self.vo.matcher.good_matches)
-            # rospy.logdebug("# good matches: {}".format(len(self.vo.matcher.good_matches)))
-            # cv2.imshow('matches', imgmatch)
-            # cv2.waitKey(3)
-            # Now the new frame becomes the older one
-            self.old_frame = self.new_frame.copy()
+        # Print things
+        imgmatch = self.new_frame.copy()
+        self.vo.matcher.draw_matches(img = imgmatch,
+                                    matches = self.vo.matcher.good_matches)
+        # rospy.logdebug("# good matches: {}".format(len(self.vo.matcher.good_matches)))
+        # cv2.imshow('matches', imgmatch)
+        # cv2.waitKey(3)
+        # Now the new frame becomes the older one
+        self.old_frame = self.new_frame.copy()
 
-            image_message = bridge.cv2_to_imgmsg(imgmatch, encoding="mono8")
-            del imgmatch
-            self.img_pub.publish(image_message)
-            del image_message
+        image_message = bridge.cv2_to_imgmsg(imgmatch, encoding="mono8")
+        del imgmatch
+        self.img_pub.publish(image_message)
+        del image_message
+
+        rospy.loginfo('EXITING IMG CALLBACK')
 
 
-            gc.collect()
-        except CvBridgeError as e:
-            print(e)
+        #gc.collect()
+
 
 
 
@@ -137,7 +144,7 @@ def main(args):
     # new_frame    = rospy.get_param("~new_frame")
     input_topic  = rospy.get_param("~img_topic")
 
-    parameters = {"detector" : 'sift',"matcher" : 'bf'}
+    parameters = {"detector" : 'orb',"matcher" : 'bf'}
 
     # init only defines matcher object
     orb_vo = UWVisualOdometry(parameters,input_topic)
@@ -146,9 +153,9 @@ def main(args):
 
 
     rospy.spin()
+    rospy.loginfo('Closing Visual Odometry Node.........')
+    rospy.loginfo('bye bye')
 
-
-    cv2.destroyAllWindows()
 
 if __name__ == '__main__':
     try:

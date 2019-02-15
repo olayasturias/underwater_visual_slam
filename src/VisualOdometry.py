@@ -1241,7 +1241,7 @@ class VisualOdometry(object):
         param = np.append(param, vec_str)
         solution = optimize.least_squares(self.func, param, method=method,
                                           args=(x1, x2), loss=robust_cost_f,
-                                          ftol = 1e-8, xtol = 1e-3)
+                                          ftol = 1e-8, xtol = 1e-8)
         P = solution.x[:12].reshape((3, 4))
         M = P[:, :3]
         t = P[:, 3]

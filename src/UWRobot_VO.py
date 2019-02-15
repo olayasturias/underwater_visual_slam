@@ -70,7 +70,7 @@ class UWVisualOdometry(object):
         try:
             # Do VO stuff.. If you can!!
             # try:
-            self.vo.init_reconstruction(optimize = False,
+            self.vo.init_reconstruction(optimize = True,
                                             image1 = self.old_frame,
                                             image2 = self.new_frame)
             # Log time  taken
@@ -144,7 +144,7 @@ def main(args):
     # new_frame    = rospy.get_param("~new_frame")
     input_topic  = rospy.get_param("~img_topic")
 
-    parameters = {"detector" : 'orb',"matcher" : 'bf'}
+    parameters = {"detector" : 'sift',"matcher" : 'bf'}
 
     # init only defines matcher object
     orb_vo = UWVisualOdometry(parameters,input_topic)

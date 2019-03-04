@@ -109,7 +109,7 @@ class UWVisualOdometry(object):
                                               'ex_time'])
 
         log = pd.concat([saved,new])
-        log.to_csv(self.strfile)
+        #log.to_csv(self.strfile)
 
         # Print things
         imgmatch = self.new_frame.copy()
@@ -121,7 +121,7 @@ class UWVisualOdometry(object):
         # Now the new frame becomes the older one
         self.old_frame = self.new_frame.copy()
 
-        image_message = bridge.cv2_to_imgmsg(imgmatch, encoding="mono8")
+        image_message = bridge.cv2_to_imgmsg(imgmatch, encoding="passthrough")
         del imgmatch
         self.img_pub.publish(image_message)
         del image_message
@@ -144,7 +144,7 @@ def main(args):
     # new_frame    = rospy.get_param("~new_frame")
     input_topic  = rospy.get_param("~img_topic")
 
-    parameters = {"detector" : 'sift',"matcher" : 'bf'}
+    parameters = {"detector" : 'orb',"matcher" : 'bf'}
 
     # init only defines matcher object
     orb_vo = UWVisualOdometry(parameters,input_topic)

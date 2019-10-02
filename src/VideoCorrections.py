@@ -2,12 +2,12 @@
 import rospy
 import sys,os
 import cv2
-assert cv2.__version__[0] == '3', 'The fisheye module requires opencv version >= 3.0.0'
+#assert cv2.__version__[0] == '3', 'The fisheye module requires opencv version >= 3.0.0'
 import numpy as np
 from cv_bridge import CvBridge, CvBridgeError
 from sensor_msgs.msg import Image, CameraInfo, CompressedImage
 import threading
-import Queue
+import queue
 import gc
 import time
 

@@ -371,7 +371,11 @@ class Matcher(object):
 
             # We keep only those match objects with two matches:
             temp_matches = [m for m in matches if (len(m)) == 2]
-            dist = [match.distance for match in m for m in temp_matches]
+
+            #dist = [match.distance for match in m for m in temp_matches]
+            for m in temp_matches:
+                for match in m:
+                    dist.append(match.distance)
 
             # Now, calculate the threshold:
             if dist:
@@ -380,7 +384,7 @@ class Matcher(object):
                 return None
             # Keep only reasonable matches based on the threshold distance:
             near_matches = [t for t in temp_matches
-            if t[0].distance/t[1].distance < thres_dist]
+            if t[0].distance/(t[1].distance+0.01) < thres_dist]
 
             # Sort them in the order of their distance.
             near_matches = sorted(near_matches,

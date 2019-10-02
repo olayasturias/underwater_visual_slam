@@ -9,7 +9,7 @@ import gc
 import pandas as pd
 import time
 import datetime
-from sensor_msgs.msg import Image
+from sensor_msgs.msg import Image, CompressedImage
 from VideoCorrections import VideoCorrect
 
 """
@@ -37,7 +37,7 @@ class UWVisualOdometry(object):
         # Create Visual Odometry instance
         self.vo = VisualOdometry(params)
 
-        self.image_sub = rospy.Subscriber(imgtopic, Image, self.img_callback, queue_size = 1)
+        self.image_sub = rospy.Subscriber(imgtopic, CompressedImage, self.img_callback, queue_size = 1)
         rospy.loginfo("Subscribed to %s topic", imgtopic)
 
         self.img_pub = rospy.Publisher('/BlueRov2/image_matches',
@@ -53,63 +53,68 @@ class UWVisualOdometry(object):
         start = time.time()
         bridge = CvBridge()
         # Read and convert data
-        current_frame = bridge.imgmsg_to_cv2(data, "bgr8")
+        #current_frame = bridge.imgmsg_to_cv2(data)
+        np_arr = np.fromstring(data.data, np.uint8)
+        current_frame = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
 
-        corrected = self.videocorrect.filter(current_frame)
+        #corrected = self.videocorrect.filter(current_frame)
+        corrected = current_frame
         end = time.time()
         rospy.logdebug('Time taking for homomorphic %s',end-start)
 
         self.new_frame = corrected
+
         # If first iteration, copy image twice
         if not self.old_frame.size:
             self.old_frame = self.new_frame.copy()
 
         # Prepare csv for log file
         saved = pd.read_csv(self.strfile,index_col=0,header=0)
-        self.vo.cam.K = self.videocorrect.K
-        try:
+        #self.vo.cam.K = self.videocorrect.K
+        #try:
             # Do VO stuff.. If you can!!
             # try:
-            self.vo.init_reconstruction(optimize = True,
+        self.vo.init_reconstruction(optimize = False,
                                             image1 = self.old_frame,
                                             image2 = self.new_frame)
+        print(len(self.vo.matcher.good_matches))
             # Log time  taken
-            end = time.time()
-            ttaken = end-start
+        end = time.time()
+        ttaken = end-start
 
-            rospy.loginfo('VO done in %s s', ttaken)
+            #rospy.loginfo('VO done in %s s', ttaken)
 
-            new = pd.DataFrame([[len(self.vo.matcher.kp1),len(self.vo.matcher.matches1),
-                                     len(self.vo.matcher.good_matches),self.vo.reprojection_error_mean,ttaken]],
-                                   columns = ['nfeatures','nmatches','ngoodmatches','reproj_error','ex_time'])
-        except:
-            rospy.logwarn('Not enough matches in this pair of frames')
-            end = time.time()
-            ttaken = end-start
-            if not self.vo.matcher.kp1:
-                nkp1 = 0
-            else:
-                nkp1 = len(self.vo.matcher.kp1)
-            if not self.vo.matcher.matches1:
-                nmatches = 0
-            else:
-                nmatches = len(self.vo.matcher.matches1)
-            if not self.vo.matcher.good_matches:
-                ngood = 0
-            else:
-                ngood = len(self.vo.matcher.good_matches)
-            if not self.vo.reprojection_error_mean:
-                repr_err = 0
-            else:
-                repr_err = self.vo.reprojection_error_mean
-            new = pd.DataFrame([[ nkp1, nmatches,
-                                  ngood, repr_err ,ttaken]],
-                                   columns = ['nfeatures','nmatches',
-                                              'ngoodmatches','reproj_error',
-                                              'ex_time'])
+        new = pd.DataFrame([[len(self.vo.matcher.kp1),len(self.vo.matcher.matches1),
+                                    len(self.vo.matcher.good_matches),self.vo.reprojection_error_mean,ttaken]],
+                                  columns = ['nfeatures','nmatches','ngoodmatches','reproj_error','ex_time'])
+        #except:
+            # rospy.logwarn('Not enough matches in this pair of frames')
+            # end = time.time()
+            # ttaken = end-start
+            # if not self.vo.matcher.kp1:
+            #     nkp1 = 0
+            # else:
+            #     nkp1 = len(self.vo.matcher.kp1)
+            # if not self.vo.matcher.matches1:
+            #     nmatches = 0
+            # else:
+            #     nmatches = len(self.vo.matcher.matches1)
+            # if not self.vo.matcher.good_matches:
+            #     ngood = 0
+            # else:
+            #     ngood = len(self.vo.matcher.good_matches)
+            # if not self.vo.reprojection_error_mean:
+            #     repr_err = 0
+            # else:
+            #     repr_err = self.vo.reprojection_error_mean
+            # new = pd.DataFrame([[ nkp1, nmatches,
+            #                       ngood, repr_err ,ttaken]],
+            #                        columns = ['nfeatures','nmatches',
+            #                                   'ngoodmatches','reproj_error',
+            #                                   'ex_time'])
 
         log = pd.concat([saved,new])
-        #log.to_csv(self.strfile)
+        log.to_csv(self.strfile)
 
         # Print things
         imgmatch = self.new_frame.copy()

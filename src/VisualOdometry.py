@@ -7,7 +7,6 @@ from scipy import optimize
 from math import cos, sin, exp
 import os
 import time
-import timeout_decorator
 from Matcher import Matcher
 from Camera import Camera
 from Map import Map
@@ -209,98 +208,98 @@ class VisualOdometry(object):
         start = time.time()
 
 
-        if not optimize:
-            # 4
-            self.structure = self.triangulate(self.kp1, self.kp2, euclidean = True)
-            reproj_mask = self.mask_reprojection(self.cam.K, self.cam.R, self.cam.t,
-                                                 self.structure,self.kp1,self.kp2)
-            if any(reproj_mask):
-                self.kp1 = self.kp1[reproj_mask]
-                self.kp2 = self.kp2[reproj_mask]
-                self.matcher.good_desc1 = np.asarray(self.matcher.good_desc1)[reproj_mask]
-                self.matcher.good_desc2 = np.asarray(self.matcher.good_desc2)[reproj_mask]
-                self.FindEssentialRansac(self.kp1,self.kp2,self.cam.K)
-            else:
-                pass
-                optimize = True
-
-        if optimize:
-            # 4
-            self.structure = self.triangulate(self.kp1, self.kp2, euclidean=False)
-            # 5
-            if (12+len(self.structure))<(len(self.kp1)+len(self.kp2)):
-                sol, F = self.optimize_F(self.kp1, self.kp2, self.E, self.structure)
-                self.F = F
-
-
-        end = time.time()
-        rospy.logdebug('Time taking for optimization %s',end-start)
-        # 6
-        self.structure = self.triangulate(self.kp1, self.kp2,euclidean=True)
-        # 7
-        self.structure, mask = self.filter_z(self.structure)
-
-        self.kp1 = self.kp1[mask]
-        self.kp2 = self.kp2[mask]
-        desc1 = np.asarray(self.matcher.good_desc1)[mask]
-        desc2 = np.asarray(self.matcher.good_desc2)[mask]
-
-        reproj_mask = self.mask_reprojection(self.cam.K, self.cam.R, self.cam.t,
-                                            self.structure,self.kp1,self.kp2,draw=False)
-
-
-        # 8
-        cam1 = Camera()
-        cam1.set_index(self.index)
-        cam1.set_P(np.array([[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0]]))
-        # cam1.is_keyframe()
-        cam1.set_points(self.kp1)
-        cam1.set_descriptors(desc1)
-        self.cam.set_index(self.index + 1)
-        self.cam.set_points(self.kp2)
-        self.cam.set_descriptors(desc2)
-        # 9
-        for i in range(len(self.structure)):
-            descriptors = np.vstack((desc1[i],
-                                     desc2[i]))
-            points = np.vstack((self.kp1[i],
-                                self.kp2[i]))
-            self.scene.add_mappoint(MapPoint(self.structure[i, :],
-                                             [cam1, self.cam],
-                                             points,
-                                             descriptors))
-        self.scene.add_camera(cam1)
-        self.scene.add_camera(self.cam)
-        self.cam.is_keyframe()
-        self.index += 1
-
-        rvec,tvec = cv2.composeRT(cv2.Rodrigues(self.delta_R)[0],self.delta_t,
-                                  cv2.Rodrigues(self.cam.R)[0],self.cam.t)[:2]
-
-
-        # Increment Visual Odometry measurements
-        # self.delta_R = np.matmul(self.delta_R, self.cam.R)
-
-        # Increments done on deltaR to avoid singularities and discontinuities.
-        # This has the effect that different values could represent the same
-        # rotation, for example quaternion q and -q represent the same rotation.
-        # It is therefore possible that, when converting a rotation sequence,
-        # the output may jump between these equivalent forms.
-        # This could cause problems where subsequent operations such as
-        # differentiation are done on this data.
-        quaternion = pyquat(matrix = cv2.Rodrigues(rvec)[0]).elements
-        self.delta_t = tvec
-        # Publish
-        odom = Odometry()
-        odom.header.stamp  = rospy.Time.now()
-        odom.header.frame_id = 'vodom'
-        odom.child_frame_id = 'base_link'
-        # pyquaternion uses different order than ROS
-        odom.pose.pose = Pose(Point(self.delta_t[0],self.delta_t[1],self.delta_t[2]),
-                              Quaternion(quaternion[3],quaternion[0],
-                                        quaternion[1], quaternion[2]))
-
-        self.odom_pub.publish(odom)
+        # if not optimize:
+        #     # 4
+        #     self.structure = self.triangulate(self.kp1, self.kp2, euclidean = True)
+        #     reproj_mask = self.mask_reprojection(self.cam.K, self.cam.R, self.cam.t,
+        #                                          self.structure,self.kp1,self.kp2)
+        #     if any(reproj_mask):
+        #         self.kp1 = self.kp1[reproj_mask]
+        #         self.kp2 = self.kp2[reproj_mask]
+        #         self.matcher.good_desc1 = np.asarray(self.matcher.good_desc1)[reproj_mask]
+        #         self.matcher.good_desc2 = np.asarray(self.matcher.good_desc2)[reproj_mask]
+        #         self.FindEssentialRansac(self.kp1,self.kp2,self.cam.K)
+        #     else:
+        #         pass
+        #         #optimize = True
+        #
+        # if optimize:
+        #     # 4
+        #     self.structure = self.triangulate(self.kp1, self.kp2, euclidean=False)
+        #     # 5
+        #     if (12+len(self.structure))<(len(self.kp1)+len(self.kp2)):
+        #         sol, F = self.optimize_F(self.kp1, self.kp2, self.E, self.structure)
+        #         self.F = F
+        #
+        #
+        # end = time.time()
+        # rospy.logdebug('Time taking for optimization %s',end-start)
+        # # 6
+        # self.structure = self.triangulate(self.kp1, self.kp2,euclidean=True)
+        # # 7
+        # self.structure, mask = self.filter_z(self.structure)
+        #
+        # self.kp1 = self.kp1[mask]
+        # self.kp2 = self.kp2[mask]
+        # desc1 = np.asarray(self.matcher.good_desc1)[mask]
+        # desc2 = np.asarray(self.matcher.good_desc2)[mask]
+        #
+        # reproj_mask = self.mask_reprojection(self.cam.K, self.cam.R, self.cam.t,
+        #                                     self.structure,self.kp1,self.kp2,draw=False)
+        #
+        #
+        # # 8
+        # cam1 = Camera()
+        # cam1.set_index(self.index)
+        # cam1.set_P(np.array([[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0]]))
+        # # cam1.is_keyframe()
+        # cam1.set_points(self.kp1)
+        # cam1.set_descriptors(desc1)
+        # self.cam.set_index(self.index + 1)
+        # self.cam.set_points(self.kp2)
+        # self.cam.set_descriptors(desc2)
+        # # 9
+        # for i in range(len(self.structure)):
+        #     descriptors = np.vstack((desc1[i],
+        #                              desc2[i]))
+        #     points = np.vstack((self.kp1[i],
+        #                         self.kp2[i]))
+        #     self.scene.add_mappoint(MapPoint(self.structure[i, :],
+        #                                      [cam1, self.cam],
+        #                                      points,
+        #                                      descriptors))
+        # self.scene.add_camera(cam1)
+        # self.scene.add_camera(self.cam)
+        # self.cam.is_keyframe()
+        # self.index += 1
+        #
+        # rvec,tvec = cv2.composeRT(cv2.Rodrigues(self.delta_R)[0],self.delta_t,
+        #                           cv2.Rodrigues(self.cam.R)[0],self.cam.t)[:2]
+        #
+        #
+        # # Increment Visual Odometry measurements
+        # # self.delta_R = np.matmul(self.delta_R, self.cam.R)
+        #
+        # # Increments done on deltaR to avoid singularities and discontinuities.
+        # # This has the effect that different values could represent the same
+        # # rotation, for example quaternion q and -q represent the same rotation.
+        # # It is therefore possible that, when converting a rotation sequence,
+        # # the output may jump between these equivalent forms.
+        # # This could cause problems where subsequent operations such as
+        # # differentiation are done on this data.
+        # quaternion = pyquat(matrix = cv2.Rodrigues(rvec)[0]).elements
+        # self.delta_t = tvec
+        # # Publish
+        # odom = Odometry()
+        # odom.header.stamp  = rospy.Time.now()
+        # odom.header.frame_id = 'vodom'
+        # odom.child_frame_id = 'base_link'
+        # # pyquaternion uses different order than ROS
+        # odom.pose.pose = Pose(Point(self.delta_t[0],self.delta_t[1],self.delta_t[2]),
+        #                       Quaternion(quaternion[3],quaternion[0],
+        #                                 quaternion[1], quaternion[2]))
+        #
+        # self.odom_pub.publish(odom)
 
     def track_local_map(self):
         """ Tracks the local map.
@@ -402,17 +401,17 @@ class VisualOdometry(object):
                                                            algorithms[method],
                                                            tol)
                 return self.F
-            except Exception, e:
-                print "Exception"
-                print e
+            except (Exception, e):
+                print ("Exception")
+                print (e)
         else:
             try:
                 self.F, self.mask = cv2.findFundamentalMat(kpts2,
                                                            kpts1,
                                                            algorithms[method])
                 return self.F
-            except Exception, e:
-                print e
+            except (Exception, e):
+                print (e)
 
     def reject_outliers(self):
         """ Rejects the KeyPoints outliers.
@@ -1029,7 +1028,7 @@ class VisualOdometry(object):
 
     def convert_array2d(self, kpts):
 
-        print len(kpts[:, 0])
+        print (len(kpts[:, 0]))
 
         a = np.zeros((len(kpts[:, 0]), 2))
 
